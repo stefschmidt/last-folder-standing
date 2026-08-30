@@ -1,0 +1,46 @@
+#include <windows.h>
+
+#include "resource.h"
+
+// Embedded through the .rc rather than the linker, so the exact file we wrote is
+// what ends up in the binary.
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "app.manifest"
+
+IDD_SETTINGS DIALOGEX 0, 0, 320, 232
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Last Folder Standing"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Number of folders to show (1-15):", IDC_COUNT_LABEL, 12, 12, 160, 10
+    EDITTEXT        IDC_FOLDER_COUNT, 176, 10, 34, 14, ES_NUMBER | ES_RIGHT | WS_TABSTOP
+    CONTROL         "", IDC_FOLDER_SPIN, "msctls_updown32",
+                    UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
+                    210, 10, 12, 14
+
+    LTEXT           "Excluded folders:", IDC_EXCLUDE_LABEL, 12, 40, 160, 10
+    LISTBOX         IDC_EXCLUDE_LIST, 12, 54, 210, 122,
+                    LBS_NOINTEGRALHEIGHT | LBS_NOTIFY | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP
+
+    PUSHBUTTON      "Add folder...", IDC_ADD_FOLDER, 230, 54, 78, 16
+    PUSHBUTTON      "Add pattern...", IDC_ADD_PATTERN, 230, 74, 78, 16
+    PUSHBUTTON      "Remove", IDC_REMOVE, 230, 94, 78, 16
+
+    LTEXT           "", IDC_RESOLVED, 12, 180, 296, 10, SS_PATHELLIPSIS
+    LTEXT           "A folder without wildcards also excludes everything inside it.",
+                    IDC_HINT, 12, 194, 220, 18
+
+    DEFPUSHBUTTON   "Save", IDOK, 178, 210, 62, 16
+    PUSHBUTTON      "Cancel", IDCANCEL, 246, 210, 62, 16
+END
+
+IDD_PATTERN DIALOGEX 0, 0, 260, 92
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Add exclude pattern"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Pattern. Wildcards * and ? are allowed, environment\nvariables are expanded.\n\nExamples:  %TEMP%    *\\node_modules\\*    D:\\Renders",
+                    IDC_PATTERN_LABEL, 12, 10, 236, 42
+    EDITTEXT        IDC_PATTERN_EDIT, 12, 54, 236, 14, ES_AUTOHSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "Add", IDOK, 130, 72, 58, 15
+    PUSHBUTTON      "Cancel", IDCANCEL, 192, 72, 56, 15
+END

@@ -50,3 +50,6 @@ function(lfs_add_version_resource target description filename filetype with_icon
 endfunction()
 
 add_subdirectory(src/LFS.Monitor)
+add_subdirectory(src/LFS.ShellExtension)
+add_subdirectory(src/LFS.Settings)
+add_subdirectory(src/tools/shellext_probe)
