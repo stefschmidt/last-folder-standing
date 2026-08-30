@@ -47,7 +47,8 @@ $cmake = Find-Tool 'cmake' $cmakeCandidates
 if (-not $cmake) { throw 'cmake.exe not found. Install CMake or the VS "C++ CMake tools" component.' }
 
 if (-not (Test-Path (Join-Path $buildDir 'CMakeCache.txt'))) {
-    & $cmake -S $root -B $buildDir -G 'Visual Studio 17 2022' -A x64
+    # No explicit generator: CMake picks the newest installed Visual Studio.
+    & $cmake -S $root -B $buildDir -A x64
     if ($LASTEXITCODE -ne 0) { throw "CMake configure failed ($LASTEXITCODE)" }
 }
 
