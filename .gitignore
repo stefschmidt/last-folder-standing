@@ -1,0 +1,18 @@
+# Build output
+build/
+out/
+bin/
+obj/
+*.user
+*.aps
+
+# Visual Studio / CMake local state
+.vs/
+CMakeSettings.json
+CMakeUserPresets.json
+
+# Installer output
+installer/Output/
+
+# Local scratch
+*.log

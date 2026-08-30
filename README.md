@@ -1,0 +1,92 @@
+# Last Folder Standing
+
+**The folders you just used — always one click away, in Explorer *and* in every Open/Save dialog.**
+
+You save a render in your DAW, switch to the browser, hit "Upload" — and the file dialog dumps you in `Downloads`. Again. Last Folder Standing pins a live list of your most recently used folders into the Explorer navigation pane. Because Open/Save dialogs share that same pane, the list is right there in every standard Windows file dialog, in every application.
+
+## What it does
+
+- Adds a **"Last Folder Standing"** node to the left navigation pane (Explorer + all common file dialogs)
+- Shows the **N most recently used folders**, newest on top, updated live
+- "Used" = selected in any standard Open/Save dialog, in any program
+- Click an entry → navigate there in the same window/dialog
+
+## What makes it different
+
+- **Not a popup, not a hotkey tool** (→ Listary, Quick Access Popup): the list lives *inside* the navigation tree, zero extra UI
+- **Not the Windows "Recent Folders" registry tweak**: works even when Windows recent-item tracking is disabled (we read the `OpenSavePidlMRU` dialog history, which Windows keeps writing regardless), and adds configuration the tweak can't offer
+- **Configurable**: number of folders + exclude list. That's all. No feature creep.
+
+## Configuration
+
+Two settings. Deliberately nothing else.
+
+| Setting | Default | Range |
+|---|---|---|
+| `maxFolders` | 5 | 1–15 |
+| `excludePaths` | `[]` | glob patterns, e.g. `%TEMP%`, `*\node_modules\*` |
+
+Excluded folders are skipped; the next most recent folder takes their slot.
+
+## How it works
+
+```
+┌─────────────────────┐     watches      ┌──────────────────────────────┐
+│ LFS.Monitor         │ ───────────────► │ HKCU ...\ComDlg32\           │
+│ (background, tray)  │                  │   OpenSavePidlMRU            │
+│                     │                  │   LastVisitedPidlMRU         │
+│  merge + dedupe     │ ───────────────► │ %APPDATA%\...\Recent (.lnk)  │
+│  + apply excludes   │                  └──────────────────────────────┘
+└────────┬────────────┘
+         │ writes %LOCALAPPDATA%\LastFolderStanding\state.json
+         ▼
+┌─────────────────────┐
+│ LFS.ShellExtension  │  COM namespace extension, pinned to nav pane.
+│ (in-proc, dumb)     │  Reads state.json, renders child nodes, navigates.
+└─────────────────────┘
+```
+
+The shell extension contains **no logic** — it only renders `state.json`. All parsing, watching and filtering lives in the monitor process. If the monitor dies, Explorer keeps running with the last known list.
+
+## Known limitations
+
+- Programs with fully custom file dialogs that bypass the Windows common dialog **and** don't call `SHAddToRecentDocs` are invisible to us (rare; some Adobe apps, some cross-platform toolkits)
+- Legacy XP-style dialogs have no navigation pane, so there is nothing to render into
+
+## Installing
+
+Grab the installer from the releases page and run it. It installs per user into
+`%LOCALAPPDATA%\Programs\LastFolderStanding` and never asks for admin rights,
+because everything it registers lives under `HKEY_CURRENT_USER`.
+
+The entry shows up in new file dialogs immediately. Explorer itself picks it up
+after its next restart — the installer deliberately does not kill your Explorer
+session to force it.
+
+Uninstall through Settings → Apps as usual. It asks whether to keep your settings
+and folder list.
+
+## Building
+
+Needs Visual Studio 2022 (x64) and, for the installer, Inno Setup 6.
+
+```powershell
+.\build.ps1                              # Debug
+.\build.ps1 -Config Release
+.\build.ps1 -Config Release -Installer   # also builds the setup .exe
+```
+
+Three binaries come out of it:
+
+| | |
+|---|---|
+| `LFS.Monitor.exe` | background process, tray icon, writes `state.json` |
+| `LFS.ShellExtension.dll` | the navigation pane entry, reads `state.json` |
+| `LFS.Settings.exe` | the two settings |
+
+See `PLAN_01`–`PLAN_03` for the implementation plans and `docs/DEVELOPMENT.md` for
+repo conventions and the test procedure.
+
+## License
+
+MIT
