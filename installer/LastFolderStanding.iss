@@ -22,6 +22,13 @@ AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 VersionInfoVersion={#AppVersion}
 
+; NEVER touch the user's running programs. Inno's default is to ask the Restart
+; Manager to shut down whatever holds a file we want to replace -- and Explorer
+; holds our extension DLL, so the default kills the user's desktop mid-install.
+; PrepareToInstall renames the old DLL out of the way instead.
+CloseApplications=no
+RestartApplications=no
+
 ; Per-user install: no elevation prompt, no machine-wide state.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
@@ -48,10 +55,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 Source: "{#BinDir}\LFS.Monitor.exe";        DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\LFS.Settings.exe";       DestDir: "{app}"; Flags: ignoreversion
-; The DLL may be loaded by explorer.exe from a previous install, so it cannot
-; always be replaced right away -- restartreplace defers those to the next boot.
-Source: "{#BinDir}\LFS.ShellExtension.dll"; DestDir: "{app}"; \
-    Flags: ignoreversion restartreplace uninsrestartdelete
+; No restartreplace here: it writes to PendingFileRenameOperations under HKLM,
+; which needs admin and silently does nothing in a per-user install. The old DLL
+; is renamed away in PrepareToInstall instead, which works while it is loaded.
+Source: "{#BinDir}\LFS.ShellExtension.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\app.ico";                DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md";                     DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE";                       DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
@@ -77,6 +84,8 @@ Filename: "{app}\LFS.Settings.exe"; Description: "Open settings"; \
     Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
+; DLLs renamed aside during an update; Explorer has released them by now.
+Type: files; Name: "{app}\LFS.ShellExtension.dll.old*"
 ; Without this the (now empty) program folder survives the uninstall.
 Type: dirifempty; Name: "{app}"
 
@@ -115,10 +124,62 @@ begin
   end;
 end;
 
+// Leftovers from an earlier update whose DLL was still loaded. By now Explorer
+// has long let go of them, so they usually delete without a fuss.
+procedure DeleteStaleFiles(Dir: string);
+var
+  Found: TFindRec;
+begin
+  if FindFirst(Dir + '\LFS.ShellExtension.dll.old*', Found) then
+  try
+    repeat
+      DeleteFile(Dir + '\' + Found.Name);
+    until not FindNext(Found);
+  finally
+    FindClose(Found);
+  end;
+end;
+
+// A DLL that Explorer has mapped cannot be overwritten -- but it can be renamed.
+// That is what makes an update possible without shutting down the user's
+// desktop, which is what the Restart Manager would otherwise do.
+function MoveOldDllAside(): Boolean;
+var
+  Dll, Stale: string;
+  Index, ResultCode: Integer;
+begin
+  Result := True;
+  Dll := ExpandConstant('{app}\LFS.ShellExtension.dll');
+  if not FileExists(Dll) then
+    Exit;
+
+  // Unregister first: with the CLSID gone, nothing new binds to it.
+  Exec(ExpandConstant('{sys}\regsvr32.exe'), '/u /s "' + Dll + '"', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+
+  // Nobody holds it: plain delete and we are done.
+  if DeleteFile(Dll) then
+    Exit;
+
+  Index := 0;
+  repeat
+    Stale := Dll + '.old' + IntToStr(Index);
+    Index := Index + 1;
+  until (not FileExists(Stale)) or (Index > 100);
+
+  Result := RenameFile(Dll, Stale);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   StopMonitor();
-  Result := '';
+  DeleteStaleFiles(ExpandConstant('{app}'));
+
+  if MoveOldDllAside() then
+    Result := ''
+  else
+    Result := 'The previous version of LFS.ShellExtension.dll is in use and could not ' +
+              'be moved aside. Sign out and back in, then run Setup again.';
 end;
 
 function InitializeUninstall(): Boolean;
