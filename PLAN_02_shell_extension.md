@@ -70,7 +70,9 @@ folders themselves; clicking one navigates the view to the real filesystem folde
 - [x] BindToObject → real folder navigation (same window)
 - [x] Icons (root icon from the DLL's own resource, children real folder icons)
 - [x] Live refresh via SHChangeNotify from monitor (SHCNE_UPDATEDIR on our PIDL)
-- [ ] Verified in: Explorer, Notepad dialog, Chrome save dialog, Cubase save dialog
+- [~] Verified in: Explorer, Notepad dialog, Chrome save dialog, Cubase save dialog
+      — loaded by explorer.exe and enumerating correctly through the shell; the
+      dialog hosts still need eyes on them
 - [x] Crash drill passed — malformed, undersized, unterminated and foreign PIDLs are
       all rejected; verified by `shellext_probe`
 - [ ] Application Verifier run

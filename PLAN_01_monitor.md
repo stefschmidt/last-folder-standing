@@ -99,8 +99,13 @@ unlike the registry sources there is nothing to re-read them from after a restar
 - [x] Pipeline + atomic state.json writer
 - [x] settings.json reader/watcher + glob excludes
 - [x] Tray icon + single instance + --console mode
-- [ ] Manual test protocol: save from Notepad, Chrome download "save as", Office save;
+- [x] Explorer activity source (Source C above), verified both ways: a folder open
+      for 5 s and a file created in an open folder each reach the top of the list,
+      while five files written into a folder with no window stay out of it
+- [~] Manual test protocol: save from Notepad, Chrome download "save as", Office save;
       verify order, dedupe, exclude behavior in --console output
+      — a Cubase save dialog was picked up correctly with a real timestamp during
+      development; the other hosts still need a deliberate pass
 
 Added beyond the plan: `--dump` prints every raw source entry with its group and
 timestamp before filtering. This is what verified the PIDL decoding against a

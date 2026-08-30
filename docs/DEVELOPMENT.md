@@ -126,6 +126,26 @@ entering a plain folder path.
 - Registering by hand: `regsvr32 /s LFS.ShellExtension.dll` (HKCU, no admin),
   `regsvr32 /u /s ...` to undo. Be ready to unregister from a cmd window if Explorer
   ever crash-loops.
+
+### Panic button
+
+If Explorer misbehaves and you need it out of the way right now — no build, no
+installer, works from any PowerShell window:
+
+```powershell
+# 1. unregister
+regsvr32 /u /s "$env:LOCALAPPDATA\Programs\LastFolderStanding\LFS.ShellExtension.dll"
+# 2. remove the registration even if that failed
+Remove-Item "HKCU:\Software\Classes\CLSID\{30B40AF0-3F96-435B-9A3E-301454A92D98}" -Recurse -Force
+Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{30B40AF0-3F96-435B-9A3E-301454A92D98}" -Recurse -Force
+# 3. stop the monitor
+Get-Process LFS.Monitor -ErrorAction SilentlyContinue | Stop-Process -Force
+# 4. restart Explorer so it drops the DLL
+Stop-Process -Name explorer -Force; Start-Sleep 2; if (-not (Get-Process explorer -EA SilentlyContinue)) { Start-Process explorer.exe }
+```
+
+Explorer keeps the DLL mapped until it restarts, so step 4 is what actually
+unloads it. Steps 1–3 already stop it from doing anything.
 - Note: once Explorer has loaded the DLL it keeps it mapped, so a rebuild fails with
   a locked file until Explorer unloads it (minutes) or restarts.
 - Verify dialog integration with Notepad's Open dialog (simplest common-dialog host).
@@ -138,3 +158,19 @@ entering a plain folder path.
 - No tooling references in commits or in anything published to GitHub
 - Each PLAN file has a checklist at the bottom; tick items off as you complete them
 - No dependency on anything that requires admin at runtime; installer may elevate once
+
+## Installer traps, learned the hard way
+
+- **`CloseApplications=no` is mandatory.** Inno's default asks the Restart Manager
+  which applications hold the files it wants to replace, and shuts them down.
+  Explorer holds the extension DLL, so the default kills the user's desktop during
+  an update — taskbar included, and it does not always come back.
+- A loaded DLL cannot be overwritten, but it **can be renamed**. `PrepareToInstall`
+  unregisters and renames the old one aside; that is what makes an update possible
+  without touching a single running process.
+- `restartreplace` / `uninsrestartdelete` write to `PendingFileRenameOperations`
+  under HKLM. That needs admin, so in a per-user install they silently do nothing.
+  Use HKCU `RunOnce` when something really has to wait for the next logon.
+- Testing: `Start-Process -Wait` hangs on Inno setups because they relaunch
+  themselves. Use `-PassThru` plus `Wait-Process -Timeout`. Always pass
+  `/LOG=<file>` when something looks off — the log names the failing step.

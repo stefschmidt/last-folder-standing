@@ -58,6 +58,22 @@ has the extension DLL mapped at uninstall time, the installer instead writes an
 HKCU `RunOnce` entry that removes the folder at the next logon. It only does this
 when the DLL is actually still there, so the usual uninstall leaves nothing behind.
 
+**The installer killed Explorer, once.** The plan says "don't kill the user's
+Explorer" — and the first working installer did exactly that. Inno's default
+`CloseApplications=yes` asks the Restart Manager which applications hold the files
+being replaced and shuts them down; Explorer holds the extension DLL. On a real
+desktop the taskbar did not come back and the install aborted with exit code 5
+without writing a single file.
+
+Fixed with `CloseApplications=no` + `RestartApplications=no`, so no foreign process
+is touched, ever. Replacing a loaded DLL then works through renaming instead:
+`PrepareToInstall` unregisters the old DLL and moves it to `.old<n>`, which is
+allowed while it is mapped, and the new one takes its place. Stale copies are
+removed on the next install and on uninstall.
+
+Verified with the DLL loaded by two Explorer processes: exit code 0, both processes
+untouched, no Restart Manager entries in the install log.
+
 **Installer testing.** `Start-Process -Wait` hangs on Inno setups because they
 relaunch themselves; use `Start-Process -PassThru` plus `Wait-Process -Timeout`.
 A silent uninstall never asks about the data directory — it keeps it.
