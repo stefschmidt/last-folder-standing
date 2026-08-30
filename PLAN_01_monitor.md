@@ -36,6 +36,30 @@ clean, filtered, ordered list: `state.json`.
 - If the Recent folder doesn't exist / tracking is disabled: log once, run on Source A
   only. This must not be an error state.
 
+### Source C: Explorer activity (added after v1 planning)
+
+The dialog MRU only records Open/Save dialogs. Working in a folder *in Explorer* —
+pasting a file, dragging something in, creating a file — leaves no trace there, so
+those folders never showed up. Two documented APIs cover it without hooks:
+
+- `IShellWindows` — which folders are open in Explorer right now, polled every 2 s
+  (a window's location changes without any window-level event, so polling is needed)
+- `SHChangeNotifyRegister` — `SHCNE_CREATE | MKDIR | RENAMEITEM | RENAMEFOLDER`,
+  recursive from the desktop, on the watcher's own thread and message window
+
+**Neither works alone.** Change notifications fire for every process on the machine:
+measured on a live desktop, Dropbox's cache folder appeared within seconds of
+starting, unprompted. So a change only counts when it lands in a folder that is open
+in Explorer at that moment.
+
+A folder qualifies when either:
+- something happens in it while it is open → counts immediately, or
+- a window sits on it for 5 s → counts as "worked in"
+
+The dwell rule keeps folders you merely click through on the way elsewhere out of the
+list. Results are persisted to `explorer_activity.json` (max 50 entries), because
+unlike the registry sources there is nothing to re-read them from after a restart.
+
 ## Pipeline (on any debounced event)
 
 1. Collect candidate (path, timestamp, source) tuples from both sources

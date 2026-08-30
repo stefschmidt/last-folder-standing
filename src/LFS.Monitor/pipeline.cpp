@@ -8,6 +8,7 @@
 #include "app_paths.h"
 #include "common/strings.h"
 #include "common/timeutil.h"
+#include "explorer_watcher.h"
 #include "mru_reader.h"
 #include "recent_reader.h"
 
@@ -80,6 +81,7 @@ std::vector<FolderEntry> BuildFolderList(const Settings& settings, Snapshot& sna
     std::vector<RawEntry> raw = ReadOpenSaveMru();
     for (auto& e : ReadLastVisitedMru()) raw.push_back(std::move(e));
     for (auto& e : ReadRecentFolder()) raw.push_back(std::move(e));
+    for (auto& e : ReadExplorerActivity()) raw.push_back(std::move(e));
     local.raw = raw.size();
 
     const std::vector<std::wstring> userExcludes = ExpandPatterns(settings.excludePaths);
@@ -105,11 +107,12 @@ std::vector<FolderEntry> BuildFolderList(const Settings& settings, Snapshot& sna
             continue;
         }
 
-        // Timestamp resolution. .lnk write times are real; registry entries only
-        // get a fresh stamp when they sit at the head of their MRU list.
+        // Timestamp resolution. .lnk write times and observed Explorer activity
+        // are real; registry entries only get a fresh stamp when they sit at the
+        // head of their MRU list.
         const uint64_t known = snap.Get(path);
         uint64_t ts = known;
-        if (e.source == Source::Recent || e.isHead) {
+        if (HasRealTimestamp(e.source) || e.isHead) {
             ts = (std::max)(known, e.observedUtc);
         } else if (known == 0) {
             ts = e.observedUtc;

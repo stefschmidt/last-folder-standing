@@ -8,7 +8,9 @@ You save a render in your DAW, switch to the browser, hit "Upload" — and the f
 
 - Adds a **"Last Folder Standing"** node to the left navigation pane (Explorer + all common file dialogs)
 - Shows the **N most recently used folders**, newest on top, updated live
-- "Used" = selected in any standard Open/Save dialog, in any program
+- "Used" = picked in any standard Open/Save dialog, in any program — **or** worked in
+  through Explorer itself: pasting a file, dragging something in, or just keeping the
+  folder open for a few seconds
 - Click an entry → navigate there in the same window/dialog
 
 ## What makes it different
@@ -36,8 +38,9 @@ Excluded folders are skipped; the next most recent folder takes their slot.
 │ (background, tray)  │                  │   OpenSavePidlMRU            │
 │                     │                  │   LastVisitedPidlMRU         │
 │  merge + dedupe     │ ───────────────► │ %APPDATA%\...\Recent (.lnk)  │
-│  + apply excludes   │                  └──────────────────────────────┘
-└────────┬────────────┘
+│  + apply excludes   │ ───────────────► │ Explorer: open windows +     │
+│                     │                  │   shell change notifications │
+└────────┬────────────┘                  └──────────────────────────────┘
          │ writes %LOCALAPPDATA%\LastFolderStanding\state.json
          ▼
 ┌─────────────────────┐
@@ -52,6 +55,10 @@ The shell extension contains **no logic** — it only renders `state.json`. All 
 
 - Programs with fully custom file dialogs that bypass the Windows common dialog **and** don't call `SHAddToRecentDocs` are invisible to us (rare; some Adobe apps, some cross-platform toolkits)
 - Legacy XP-style dialogs have no navigation pane, so there is nothing to render into
+- Explorer activity only counts in folders you actually have open. Dropping a file into a
+  folder you never opened — via "Send to", or onto a shortcut — doesn't register. That
+  restriction is on purpose: without it, every background process writing files would
+  end up in your list
 
 ## Installing
 

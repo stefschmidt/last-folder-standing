@@ -64,7 +64,27 @@ mode) before any shell code exists.
 
 `folders` is already sorted (newest first), deduped, exclude-filtered and truncated to
 maxFolders by the monitor. The extension renders it verbatim.
-`source` is one of `opensave`, `lastvisited`, `recent`.
+`source` is one of `opensave`, `lastvisited`, `recent`, `explorer`. New source values do
+not bump the version: the extension only reads `path`.
+
+## explorer_activity.json (schema v1)
+
+`%LOCALAPPDATA%\LastFolderStanding\explorer_activity.json`, written by the monitor's
+Explorer watcher and read back as a pipeline source. Internal to the monitor — the
+shell extension never touches it.
+
+```json
+{
+  "version": 1,
+  "folders": [
+    { "path": "D:\\Renders", "lastUsedUtc": "2026-08-30T09:36:39Z" }
+  ]
+}
+```
+
+Capped at 50 entries. It exists so folders observed through Explorer survive a monitor
+restart; without it they would vanish from the list, because unlike the registry MRU
+they have no source to be re-read from.
 
 ## settings.json schema (v1)
 
@@ -92,6 +112,11 @@ entering a plain folder path.
     single pass.
   - `--dump` — print every raw source entry with group, rank and timestamp *before*
     filtering. First thing to reach for when the list looks wrong.
+- `shell_activity_probe.exe` prints the two Explorer-activity sources side by side:
+  shell change notifications and the folders currently open in Explorer. Use it when
+  the Explorer source picks up too much or too little. It is what established that
+  change notifications alone are unusable — on a normal desktop they surface every
+  background process, Dropbox's cache folder included.
 - **Shell extension: run `shellext_probe.exe` before you ever register the DLL.**
   It loads the DLL directly and drives it through the whole IShellFolder2 surface,
   including deliberately malformed PIDLs. A crash there is a crash in explorer.exe

@@ -8,8 +8,10 @@ add_executable(LFS.Monitor
     pipeline.cpp
     state_writer.cpp
     watcher.cpp
+    explorer_watcher.cpp
     tray.cpp
     folder_entry.h
+    explorer_watcher.h
     app_paths.h
     settings.h
     snapshot.h
@@ -26,6 +28,8 @@ target_link_libraries(LFS.Monitor PRIVATE
     shell32
     shlwapi
     ole32
+    oleaut32
+    uuid
     advapi32
     user32
 )

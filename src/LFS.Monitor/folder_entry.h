@@ -6,15 +6,22 @@
 
 namespace lfs {
 
-enum class Source { OpenSave, LastVisited, Recent };
+enum class Source { OpenSave, LastVisited, Recent, Explorer };
 
 inline const wchar_t* SourceName(Source s) {
     switch (s) {
         case Source::OpenSave: return L"opensave";
         case Source::LastVisited: return L"lastvisited";
         case Source::Recent: return L"recent";
+        case Source::Explorer: return L"explorer";
     }
     return L"unknown";
+}
+
+// Recent and Explorer entries carry a timestamp of the moment we actually
+// observed the use. Registry entries only do so at the head of their MRU list.
+inline bool HasRealTimestamp(Source s) {
+    return s == Source::Recent || s == Source::Explorer;
 }
 
 // One raw observation from a source, before normalization and filtering.

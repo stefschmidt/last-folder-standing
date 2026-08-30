@@ -19,6 +19,7 @@
 #include "app_paths.h"
 #include "common/strings.h"
 #include "common/timeutil.h"
+#include "explorer_watcher.h"
 #include "mru_reader.h"
 #include "pipeline.h"
 #include "recent_reader.h"
@@ -65,6 +66,7 @@ void DumpRaw() {
     print(L"OpenSavePidlMRU", lfs::ReadOpenSaveMru());
     print(L"LastVisitedPidlMRU", lfs::ReadLastVisitedMru());
     print(L"Recent (*.lnk)", lfs::ReadRecentFolder(30));
+    print(L"Explorer activity", lfs::ReadExplorerActivity());
 }
 
 // Everything the two run modes have in common: settings, snapshot, the pipeline
@@ -176,15 +178,21 @@ int RunConsole(Monitor& monitor, bool once) {
     }
     PrintWarnings(watcher);
 
+    lfs::ExplorerWatcher explorer;
+    const bool explorerOk = explorer.Start([&watcher] { watcher.RequestRefresh(); });
+    if (!explorerOk) std::fwprintf(stderr, L"[warn] Explorer activity watcher unavailable\n");
+
     g_watcher = &watcher;
     ::SetConsoleCtrlHandler(&ConsoleCtrlHandler, TRUE);
-    std::wprintf(L"\nWatching. Ctrl+C to stop.\n");
+    std::wprintf(L"\nWatching (explorer activity: %s). Ctrl+C to stop.\n",
+                 explorerOk ? L"on" : L"off");
     std::fflush(stdout);
 
     watcher.Run([&monitor](lfs::ChangeKind kind) { monitor.Refresh(kind); });
 
     ::SetConsoleCtrlHandler(&ConsoleCtrlHandler, FALSE);
     g_watcher = nullptr;
+    explorer.Stop();
     return 0;
 }
 
@@ -208,6 +216,9 @@ void LaunchSettingsApp() {
 int RunTray(Monitor& monitor) {
     lfs::ChangeWatcher watcher;
     if (!watcher.Start()) return 1;
+
+    lfs::ExplorerWatcher explorer;
+    explorer.Start([&watcher] { watcher.RequestRefresh(); });
 
     lfs::TrayIcon tray;
     if (!tray.Create([&](lfs::TrayCommand cmd) {
@@ -246,6 +257,7 @@ int RunTray(Monitor& monitor) {
     }
 
     watcher.Stop();
+    explorer.Stop();
     if (worker.joinable()) worker.join();
     monitor.SetTray(nullptr);
     tray.Destroy();
