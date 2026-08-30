@@ -1,0 +1,37 @@
+// Generated from version.rc.in by CMake -- do not edit the generated file.
+#include <windows.h>
+
+@LFS_ICON_STATEMENT@
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    @LFS_VERSION_MAJOR@,@LFS_VERSION_MINOR@,@LFS_VERSION_PATCH@,0
+ PRODUCTVERSION @LFS_VERSION_MAJOR@,@LFS_VERSION_MINOR@,@LFS_VERSION_PATCH@,0
+ FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+ FILEFLAGS      VS_FF_DEBUG
+#else
+ FILEFLAGS      0x0L
+#endif
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       @LFS_FILETYPE@
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "Last Folder Standing"
+            VALUE "FileDescription",  "@LFS_FILE_DESCRIPTION@"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "InternalName",     "@LFS_TARGET_NAME@"
+            VALUE "OriginalFilename", "@LFS_ORIGINAL_FILENAME@"
+            VALUE "ProductName",      "Last Folder Standing"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+            VALUE "LegalCopyright",   "MIT License"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
