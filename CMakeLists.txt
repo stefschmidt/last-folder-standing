@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(LastFolderStanding
-    VERSION 0.2.0
+    VERSION 0.2.1
     DESCRIPTION "Most recently used folders, pinned into the Explorer navigation pane"
     LANGUAGES CXX)
 

@@ -92,6 +92,16 @@ int ProbeRegistered() {
             }
             items->Release();
         }
+
+        // Same check as above, but through the registry attributes the shell
+        // reads before it ever creates our object. These two have to agree, or
+        // the node shows up in Explorer and is missing from file dialogs.
+        SFGAOF nodeAttrs = SFGAO_FOLDER | SFGAO_FILESYSANCESTOR;
+        auto lastId = reinterpret_cast<PCUITEMID_CHILD>(::ILFindLastID(ours));
+        const HRESULT attrHr = desktop->GetAttributesOf(1, &lastId, &nodeAttrs);
+        Check(SUCCEEDED(attrHr) && (nodeAttrs & SFGAO_FILESYSANCESTOR),
+              L"registered attributes include FILESYSANCESTOR");
+
         desktop->Release();
     }
     Check(found, L"node appears in the desktop's navigation enumeration");
@@ -255,6 +265,13 @@ int wmain(int argc, wchar_t** argv) {
         hr = folder->GetAttributesOf(1, &first, &attrs);
         Check(SUCCEEDED(hr) && (attrs & SFGAO_FOLDER) && (attrs & SFGAO_FILESYSTEM),
               L"child reports FOLDER | FILESYSTEM");
+
+        // A file dialog asking for real paths (FOS_FORCEFILESYSTEM) drops any
+        // node that is neither a filesystem object nor able to contain one.
+        SFGAOF rootAttrs = SFGAO_FOLDER | SFGAO_FILESYSANCESTOR;
+        hr = folder->GetAttributesOf(0, nullptr, &rootAttrs);
+        Check(SUCCEEDED(hr) && (rootAttrs & SFGAO_FILESYSANCESTOR),
+              L"folder itself reports FILESYSANCESTOR");
 
         IExtractIconW* icon = nullptr;
         hr = folder->GetUIObjectOf(nullptr, 1, &first, IID_IExtractIconW, nullptr,

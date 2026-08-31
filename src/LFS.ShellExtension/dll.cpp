@@ -14,6 +14,7 @@
 
 #include "class_factory.h"
 #include "common/lfs_guid.h"
+#include "root_folder.h"
 
 namespace lfs {
 namespace {
@@ -28,8 +29,9 @@ constexpr wchar_t kHideDesktopKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel";
 
 // Folder attributes reported before the object is even created; the shell reads
-// these from the registry to decide how to show the node.
-constexpr DWORD kFolderAttributes = SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+// these from the registry to decide how to show the node. Same value the folder
+// reports at runtime -- see kRootAttributes for why FILESYSANCESTOR is in there.
+constexpr DWORD kFolderAttributes = static_cast<DWORD>(kRootAttributes);
 // Position in the navigation pane. Below the cloud providers, above This PC.
 constexpr DWORD kSortOrderIndex = 0x42;
 

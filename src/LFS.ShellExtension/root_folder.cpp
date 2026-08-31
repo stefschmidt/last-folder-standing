@@ -208,7 +208,7 @@ IFACEMETHODIMP RootFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY apid
                                            SFGAOF* rgfInOut) {
     if (!rgfInOut) return E_POINTER;
     if (cidl == 0 || !apidl) {
-        *rgfInOut &= SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+        *rgfInOut &= kRootAttributes;
         return S_OK;
     }
 

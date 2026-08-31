@@ -53,7 +53,7 @@ The shell extension contains **no logic** — it only renders `state.json`. All 
 
 ## Known limitations
 
-- Programs with fully custom file dialogs that bypass the Windows common dialog **and** don't call `SHAddToRecentDocs` are invisible to us (rare; some Adobe apps, some cross-platform toolkits)
+- Programs with fully custom file dialogs that bypass the Windows common dialog **and** don't call `SHAddToRecentDocs` are invisible to us (rare; mostly cross-platform toolkits that draw their own dialogs)
 - Legacy XP-style dialogs have no navigation pane, so there is nothing to render into
 - Explorer activity only counts in folders you actually have open. Dropping a file into a
   folder you never opened — via "Send to", or onto a shortcut — doesn't register. That

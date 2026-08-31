@@ -148,9 +148,28 @@ Explorer keeps the DLL mapped until it restarts, so step 4 is what actually
 unloads it. Steps 1–3 already stop it from doing anything.
 - Note: once Explorer has loaded the DLL it keeps it mapped, so a rebuild fails with
   a locked file until Explorer unloads it (minutes) or restarts.
-- Verify dialog integration with Notepad's Open dialog (simplest common-dialog host).
+- Verify dialog integration with Notepad's Open dialog (simplest common-dialog host),
+  but do not stop there — see "File dialogs" below for why Notepad passing means little.
 - Icon: `tools\make_icon.ps1` regenerates `assets\app.ico`. Only run it when the icon
   should change; the result is committed and stamped into all three binaries by CMake.
+
+### File dialogs
+
+Explorer showing the node proves nothing about file dialogs. An application that
+wants a real path back sets `FOS_FORCEFILESYSTEM`, and the dialog then hides every
+navigation pane node reporting neither `SFGAO_FILESYSTEM` nor `SFGAO_FILESYSANCESTOR`.
+That is how the node ended up visible everywhere except in Adobe's Open dialogs.
+The node is not a filesystem object itself, but all of its children are, so
+`SFGAO_FILESYSANCESTOR` is what it has to claim.
+
+The attribute lives in two places that drift apart easily: `kRootAttributes` in
+root_folder.h, reported at runtime, and the `Attributes` value under
+`CLSID\{...}\ShellFolder`, which the shell reads before it ever creates the object.
+Both derive from the same constant now, and `shellext_probe` checks each one —
+the direct mode the runtime value, `--registered` the registry value.
+
+Attributes are read once per process. After changing them, restart the host
+application; a running one keeps showing the old state.
 
 ## Conventions
 

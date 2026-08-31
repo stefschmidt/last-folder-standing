@@ -10,6 +10,16 @@
 
 namespace lfs {
 
+// What the node itself claims to be. Registered in the registry and reported
+// again at runtime, so both have to say the same thing.
+//
+// SFGAO_FILESYSANCESTOR is not cosmetic. A file dialog that wants real paths
+// sets FOS_FORCEFILESYSTEM and then hides every navigation pane node that is
+// neither a filesystem object nor able to contain one. Adobe's dialogs do this;
+// without the flag the node is visible in Explorer but missing there.
+constexpr SFGAOF kRootAttributes =
+    SFGAO_FOLDER | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+
 class RootFolder : public IShellFolder2, public IPersistFolder2 {
 public:
     RootFolder();
