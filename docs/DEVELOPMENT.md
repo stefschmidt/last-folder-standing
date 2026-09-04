@@ -111,6 +111,14 @@ entering a plain folder path.
   Two build trees: `build\` is x64, `build-x86\` holds the 32-bit shell extension and
   its probe. The 32-bit DLL is copied into the x64 output so the installer finds
   everything in one place.
+- Anything released is signed: `.\build.ps1 -Config Release -Installer -Sign`.
+  The certificate comes from `CurrentUser\My` — the only valid code signing one, or
+  name it with `-CertThumbprint`. For a hardware token, that token has to be plugged
+  in and unlocked, otherwise signtool asks for the PIN in a dialog.
+  Order matters and the script takes care of it: the four shipped binaries are signed
+  *before* Inno Setup runs, so the setup does not wrap unsigned files, and the setup
+  itself is signed afterwards. The probes are dev-only and stay unsigned.
+  Signatures are timestamped, so they stay valid after the certificate expires.
 - Monitor test modes (neither writes state.json):
   - `--console` — run the pipeline and print each result, keep watching. `--once` for a
     single pass.

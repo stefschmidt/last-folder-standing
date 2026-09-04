@@ -83,7 +83,11 @@ Inno Setup 6.
 .\build.ps1                              # Debug
 .\build.ps1 -Config Release
 .\build.ps1 -Config Release -Installer   # also builds the setup .exe
+.\build.ps1 -Config Release -Installer -Sign   # ...and signs everything
 ```
+
+`-Sign` needs a code signing certificate in your `CurrentUser\My` store; released
+builds are signed that way.
 
 Four binaries come out of it:
 

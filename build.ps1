@@ -11,6 +11,7 @@
     .\build.ps1                     # Debug build
     .\build.ps1 -Config Release
     .\build.ps1 -Config Release -Installer
+    .\build.ps1 -Config Release -Installer -Sign
     .\build.ps1 -Clean
 #>
 [CmdletBinding()]
@@ -20,6 +21,15 @@ param(
 
     # Also compile installer\LastFolderStanding.iss (needs Inno Setup 6).
     [switch]$Installer,
+
+    # Authenticode-sign the shipped binaries and, with -Installer, the setup .exe.
+    # Needs a code signing certificate in CurrentUser\My; for a hardware token,
+    # that token has to be plugged in and unlocked.
+    [switch]$Sign,
+
+    # Which certificate to sign with. Optional: without it the only valid code
+    # signing certificate in the store is used.
+    [string]$CertThumbprint,
 
     [switch]$Clean
 )
@@ -43,6 +53,37 @@ function Find-Tool([string]$Name, [string[]]$Candidates) {
     if ($cmd) { return $cmd }
     foreach ($c in $Candidates) { if (Test-Path $c) { return $c } }
     return $null
+}
+
+# 1.3.6.1.5.5.7.3.3 is the code signing EKU. Matching on the OID instead of the
+# friendly name keeps this working on a non-English Windows.
+function Find-SigningCert([string]$Thumbprint) {
+    if ($Thumbprint) {
+        $cert = Get-Item "Cert:\CurrentUser\My\$Thumbprint" -ErrorAction SilentlyContinue
+        if (-not $cert) { throw "No certificate $Thumbprint in CurrentUser\My." }
+        return $cert
+    }
+
+    $now = Get-Date
+    $found = @(Get-ChildItem Cert:\CurrentUser\My | Where-Object {
+        $_.NotBefore -le $now -and $_.NotAfter -gt $now -and
+        $_.EnhancedKeyUsageList.ObjectId -contains '1.3.6.1.5.5.7.3.3'
+    })
+
+    if ($found.Count -eq 0) {
+        throw 'No valid code signing certificate in CurrentUser\My. Pass -CertThumbprint.'
+    }
+    if ($found.Count -gt 1) {
+        throw ('Several code signing certificates found, pass -CertThumbprint with one of: ' +
+               (($found | ForEach-Object { $_.Thumbprint }) -join ', '))
+    }
+    return $found[0]
+}
+
+# Timestamped, so signatures stay valid after the certificate expires.
+function Invoke-SignTool([string]$Tool, [string]$Thumbprint, [string[]]$Files) {
+    & $Tool sign /sha1 $Thumbprint /fd SHA256 /tr 'http://timestamp.sectigo.com' /td SHA256 $Files
+    if ($LASTEXITCODE -ne 0) { throw "Signing failed ($LASTEXITCODE)" }
 }
 
 $vsRoot = $null
@@ -83,6 +124,31 @@ $dll32 = Join-Path $outDirX86 'LFS.ShellExtension32.dll'
 if (-not (Test-Path $dll32)) { throw "Missing 32-bit extension: $dll32" }
 Copy-Item $dll32 -Destination $outDir -Force
 
+# Everything that ends up on a user's machine. The probes are dev-only tools and
+# are never shipped, so they stay out of it.
+$shipped = @(
+    'LFS.Monitor.exe',
+    'LFS.Settings.exe',
+    'LFS.ShellExtension.dll',
+    'LFS.ShellExtension32.dll'
+) | ForEach-Object { Join-Path $outDir $_ }
+
+# Signing runs before Inno Setup compiles, otherwise the installer would pack
+# unsigned files inside a signed setup.exe.
+if ($Sign) {
+    $signtoolCandidates = @(
+        Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | ForEach-Object { $_.FullName }
+    )
+    $signtool = Find-Tool 'signtool' $signtoolCandidates
+    if (-not $signtool) { throw 'signtool.exe not found. Install the Windows SDK.' }
+
+    $cert = Find-SigningCert $CertThumbprint
+    Write-Host ''
+    Write-Host "Signing as $($cert.Subject)" -ForegroundColor Cyan
+    Invoke-SignTool $signtool $cert.Thumbprint $shipped
+}
+
 Write-Host ''
 Write-Host "Output: $outDir" -ForegroundColor Green
 Get-ChildItem "$outDir\*" -Include *.exe, *.dll -File -ErrorAction SilentlyContinue |
@@ -110,6 +176,12 @@ Write-Host ''
 Write-Host "Building installer $version" -ForegroundColor Cyan
 & $iscc "/DAppVersion=$version" "/DBinDir=$outDir" (Join-Path $root 'installer\LastFolderStanding.iss')
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
+
+$setup = Join-Path $root "installer\Output\LastFolderStanding-$version-setup.exe"
+if ($Sign) {
+    if (-not (Test-Path $setup)) { throw "Setup not found where expected: $setup" }
+    Invoke-SignTool $signtool $cert.Thumbprint @($setup)
+}
 
 Get-ChildItem (Join-Path $root 'installer\Output') -Filter *.exe -ErrorAction SilentlyContinue |
     ForEach-Object { Write-Host ("  {0}  {1:N0} bytes" -f $_.FullName, $_.Length) -ForegroundColor Green }
