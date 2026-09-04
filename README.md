@@ -66,16 +66,18 @@ Grab the installer from the releases page and run it. It installs per user into
 `%LOCALAPPDATA%\Programs\LastFolderStanding` and never asks for admin rights,
 because everything it registers lives under `HKEY_CURRENT_USER`.
 
-The entry shows up in new file dialogs immediately. Explorer itself picks it up
-after its next restart — the installer deliberately does not kill your Explorer
-session to force it.
+The entry shows up in any application you start from then on. Applications that
+were already running keep showing the old state — Windows reads the registration
+once per process, so those need a restart. Explorer is no exception; the installer
+deliberately does not kill your desktop session to force it.
 
 Uninstall through Settings → Apps as usual. It asks whether to keep your settings
 and folder list.
 
 ## Building
 
-Needs Visual Studio 2022 (x64) and, for the installer, Inno Setup 6.
+Needs Visual Studio 2022 with the x64 and x86 C++ toolsets and, for the installer,
+Inno Setup 6.
 
 ```powershell
 .\build.ps1                              # Debug
@@ -83,13 +85,17 @@ Needs Visual Studio 2022 (x64) and, for the installer, Inno Setup 6.
 .\build.ps1 -Config Release -Installer   # also builds the setup .exe
 ```
 
-Three binaries come out of it:
+Four binaries come out of it:
 
 | | |
 |---|---|
 | `LFS.Monitor.exe` | background process, tray icon, writes `state.json` |
 | `LFS.ShellExtension.dll` | the navigation pane entry, reads `state.json` |
+| `LFS.ShellExtension32.dll` | the same, for 32-bit applications |
 | `LFS.Settings.exe` | the two settings |
+
+The extension ships twice because a 32-bit application can only load a 32-bit
+DLL — without the second one, the entry is missing from those file dialogs.
 
 See `PLAN_01`–`PLAN_03` for the implementation plans and `docs/DEVELOPMENT.md` for
 repo conventions and the test procedure.

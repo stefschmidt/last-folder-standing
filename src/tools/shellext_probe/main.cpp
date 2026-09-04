@@ -16,6 +16,19 @@
 #include "common/lfs_guid.h"
 #include "pidl.h"
 
+// CMake points this at the DLL from the same build tree. The 32-bit probe tests
+// the 32-bit DLL and the 32-bit registry view, which is the only way to see what
+// a 32-bit application sees.
+#ifndef LFS_EXTENSION_DLL_NAME
+#define LFS_EXTENSION_DLL_NAME L"LFS.ShellExtension.dll"
+#endif
+
+#if defined(_WIN64)
+#define LFS_PROBE_ARCH L"64-bit"
+#else
+#define LFS_PROBE_ARCH L"32-bit"
+#endif
+
 namespace {
 
 int g_failures = 0;
@@ -58,7 +71,7 @@ PITEMID_CHILD MakeBogusPidl(USHORT cb, USHORT signature, bool terminatePath) {
 // node where the navigation pane looks for it. This is what "the entry shows up
 // in Explorer" reduces to, minus the pixels.
 int ProbeRegistered() {
-    std::wprintf(L"Registered-namespace probe\n\n");
+    std::wprintf(L"Registered-namespace probe (%s host)\n\n", LFS_PROBE_ARCH);
 
     PIDLIST_ABSOLUTE ours = nullptr;
     HRESULT hr = ::SHParseDisplayName(LFS_SHELL_PATH, nullptr, &ours, 0, nullptr);
@@ -141,7 +154,7 @@ int ProbeRegistered() {
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
-    std::wstring dllPath = L"LFS.ShellExtension.dll";
+    std::wstring dllPath = LFS_EXTENSION_DLL_NAME;
     if (argc > 1) dllPath = argv[1];
 
     if (dllPath == L"--registered") {
@@ -154,7 +167,7 @@ int wmain(int argc, wchar_t** argv) {
 
     ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-    std::wprintf(L"Probing %s\n\n", dllPath.c_str());
+    std::wprintf(L"Probing %s (%s host)\n\n", dllPath.c_str(), LFS_PROBE_ARCH);
 
     const HMODULE dll = ::LoadLibraryW(dllPath.c_str());
     if (!dll) {

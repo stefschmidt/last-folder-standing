@@ -75,6 +75,8 @@ folders themselves; clicking one navigates the view to the real filesystem folde
       dialog hosts still need eyes on them
 - [x] Crash drill passed — malformed, undersized, unterminated and foreign PIDLs are
       all rejected; verified by `shellext_probe`
+- [x] 32-bit build (`LFS.ShellExtension32.dll`) registered in the WOW6432Node view,
+      so the node also appears in 32-bit applications' file dialogs
 - [ ] Application Verifier run
 
 ## What made this testable

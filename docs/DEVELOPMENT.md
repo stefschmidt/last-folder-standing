@@ -12,6 +12,7 @@ src/LFS.Monitor/         C++ (Win32) background process + tray icon.
                          Watches MRU sources, writes state.json. ALL logic lives here.
 src/LFS.ShellExtension/  C++ COM in-proc DLL. Namespace extension pinned to nav pane.
                          Renders state.json. NO business logic. Must never crash Explorer.
+                         Built twice, x64 and x86 -- see "32-bit applications".
 src/LFS.Settings/        C++ (Win32) settings window, resource dialog, 2 settings.
 src/tools/shellext_probe/  Dev-only harness that drives the extension without
                          Explorer. Never shipped; run it before every registration.
@@ -105,8 +106,11 @@ entering a plain folder path.
 
 ## Build & test
 
-- Build: VS 2022, x64 only. `build.ps1` at repo root builds everything.
+- Build: VS 2022. `build.ps1` at repo root builds everything.
   `.\build.ps1 -Config Release`, `.\build.ps1 -Config Release -Installer`, `.\build.ps1 -Clean`.
+  Two build trees: `build\` is x64, `build-x86\` holds the 32-bit shell extension and
+  its probe. The 32-bit DLL is copied into the x64 output so the installer finds
+  everything in one place.
 - Monitor test modes (neither writes state.json):
   - `--console` — run the pipeline and print each result, keep watching. `--once` for a
     single pass.
@@ -123,9 +127,15 @@ entering a plain folder path.
   later. `shellext_probe.exe --registered` additionally checks that the node shows
   up in the desktop's `SHCONTF_NAVIGATION_ENUM` — which is what the navigation pane
   itself enumerates — and requires the DLL to be registered.
+  There is one probe per architecture, and each only tests its own: run
+  `build-x86\bin\<Config>\shellext_probe.exe` too, or the 32-bit half goes untested.
 - Registering by hand: `regsvr32 /s LFS.ShellExtension.dll` (HKCU, no admin),
-  `regsvr32 /u /s ...` to undo. Be ready to unregister from a cmd window if Explorer
-  ever crash-loops.
+  `regsvr32 /u /s ...` to undo. For the 32-bit DLL use `%WINDIR%\SysWOW64\regsvr32.exe`.
+  Be ready to unregister from a cmd window if Explorer ever crash-loops.
+  regsvr32 is a GUI subsystem application, so PowerShell does **not** wait for it —
+  calling it in a script and checking the registry on the next line reads the state
+  from before the call. Use `Start-Process -Wait`. Inno Setup gets this right by
+  itself (`waituntilterminated` / `ewWaitUntilTerminated`).
 
 ### Panic button
 
@@ -133,10 +143,13 @@ If Explorer misbehaves and you need it out of the way right now — no build, no
 installer, works from any PowerShell window:
 
 ```powershell
-# 1. unregister
-regsvr32 /u /s "$env:LOCALAPPDATA\Programs\LastFolderStanding\LFS.ShellExtension.dll"
-# 2. remove the registration even if that failed
+# 1. unregister -- each DLL with the regsvr32 of its own architecture
+$dir = "$env:LOCALAPPDATA\Programs\LastFolderStanding"
+regsvr32 /u /s "$dir\LFS.ShellExtension.dll"
+& "$env:WINDIR\SysWOW64\regsvr32.exe" /u /s "$dir\LFS.ShellExtension32.dll"
+# 2. remove the registration even if that failed -- both views
 Remove-Item "HKCU:\Software\Classes\CLSID\{30B40AF0-3F96-435B-9A3E-301454A92D98}" -Recurse -Force
+Remove-Item "HKCU:\Software\Classes\WOW6432Node\CLSID\{30B40AF0-3F96-435B-9A3E-301454A92D98}" -Recurse -Force
 Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{30B40AF0-3F96-435B-9A3E-301454A92D98}" -Recurse -Force
 # 3. stop the monitor
 Get-Process LFS.Monitor -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -144,8 +157,10 @@ Get-Process LFS.Monitor -ErrorAction SilentlyContinue | Stop-Process -Force
 Stop-Process -Name explorer -Force; Start-Sleep 2; if (-not (Get-Process explorer -EA SilentlyContinue)) { Start-Process explorer.exe }
 ```
 
-Explorer keeps the DLL mapped until it restarts, so step 4 is what actually
-unloads it. Steps 1–3 already stop it from doing anything.
+Explorer keeps the x64 DLL mapped until it restarts, so step 4 is what actually
+unloads it. The 32-bit one sits in whatever 32-bit application last showed a file
+dialog; those have to be restarted individually. Steps 1–3 already stop both from
+doing anything.
 - Note: once Explorer has loaded the DLL it keeps it mapped, so a rebuild fails with
   a locked file until Explorer unloads it (minutes) or restarts.
 - Verify dialog integration with Notepad's Open dialog (simplest common-dialog host),
@@ -170,6 +185,36 @@ the direct mode the runtime value, `--registered` the registry value.
 
 Attributes are read once per process. After changing them, restart the host
 application; a running one keeps showing the old state.
+
+### 32-bit applications
+
+The DLL is loaded into the process that shows the dialog, and a 32-bit process
+can only load a 32-bit DLL. It also reads a different part of the registry:
+`HKCU\Software\Classes\WOW6432Node\CLSID` instead of `HKCU\Software\Classes\CLSID`.
+With only the x64 build registered, a 32-bit application still resolves the
+namespace entry — that key is not redirected — then fails to create the object
+and drops the node without any error at all. That is how it went missing in eM
+Client's attachment dialog while Explorer showed it perfectly. Enough software is
+still 32-bit (eM Client, older Adobe tools, a lot of audio applications) that this
+is not a corner case.
+
+So the extension is built twice from the same sources. Nothing in it is
+bitness-specific; the child PIDL format uses fixed-width fields and holds no
+pointers, so both builds produce the same item IDs.
+
+- `LFS.ShellExtension.dll` — x64, from `build\`, registered with `{sys}\regsvr32.exe`
+- `LFS.ShellExtension32.dll` — x86, from `build-x86\`, registered with `{syswow64}\regsvr32.exe`
+
+The regsvr32 has to match the DLL. It is the bitness of the *registering process*
+that decides which view `DllRegisterServer` writes to, not the DLL it is handed.
+
+The CLSID keys are per view, but `Desktop\NameSpace` and the desktop-icon opt-out
+are shared by both. `DllUnregisterServer` therefore removes those only once the
+other architecture is gone — otherwise unregistering one build would take the node
+away from every application of the other bitness.
+
+To see what a 32-bit application sees, run the 32-bit probe:
+`build-x86\bin\<Config>\shellext_probe.exe --registered`.
 
 ## Conventions
 

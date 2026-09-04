@@ -1,6 +1,11 @@
 <#
 .SYNOPSIS
-    Builds Last Folder Standing (x64), optionally the installer too.
+    Builds Last Folder Standing, optionally the installer too.
+
+    Everything is x64 except a second copy of the shell extension, which is also
+    built as x86 in build-x86\ and copied next to the x64 output. 32-bit
+    applications can only load a 32-bit extension DLL, and there are plenty of
+    them left.
 
 .EXAMPLE
     .\build.ps1                     # Debug build
@@ -22,10 +27,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $buildDir = Join-Path $root 'build'
+$buildDirX86 = Join-Path $root 'build-x86'
 
-if ($Clean -and (Test-Path $buildDir)) {
-    Write-Host "Removing $buildDir" -ForegroundColor DarkGray
-    Remove-Item -Recurse -Force $buildDir
+if ($Clean) {
+    foreach ($dir in @($buildDir, $buildDirX86)) {
+        if (Test-Path $dir) {
+            Write-Host "Removing $dir" -ForegroundColor DarkGray
+            Remove-Item -Recurse -Force $dir
+        }
+    }
 }
 
 function Find-Tool([string]$Name, [string[]]$Candidates) {
@@ -46,20 +56,38 @@ if ($vsRoot) {
 $cmake = Find-Tool 'cmake' $cmakeCandidates
 if (-not $cmake) { throw 'cmake.exe not found. Install CMake or the VS "C++ CMake tools" component.' }
 
-if (-not (Test-Path (Join-Path $buildDir 'CMakeCache.txt'))) {
-    # No explicit generator: CMake picks the newest installed Visual Studio.
-    & $cmake -S $root -B $buildDir -A x64
-    if ($LASTEXITCODE -ne 0) { throw "CMake configure failed ($LASTEXITCODE)" }
+# One build tree per architecture: the Visual Studio generator bakes the target
+# platform into the cache, so a single tree cannot produce both.
+function Invoke-Build([string]$Dir, [string]$Platform) {
+    if (-not (Test-Path (Join-Path $Dir 'CMakeCache.txt'))) {
+        # No explicit generator: CMake picks the newest installed Visual Studio.
+        & $cmake -S $root -B $Dir -A $Platform
+        if ($LASTEXITCODE -ne 0) { throw "CMake configure failed for $Platform ($LASTEXITCODE)" }
+    }
+
+    & $cmake --build $Dir --config $Config -- /nologo /verbosity:minimal
+    if ($LASTEXITCODE -ne 0) { throw "Build failed for $Platform ($LASTEXITCODE)" }
 }
 
-& $cmake --build $buildDir --config $Config -- /nologo /verbosity:minimal
-if ($LASTEXITCODE -ne 0) { throw "Build failed ($LASTEXITCODE)" }
+Invoke-Build $buildDir 'x64'
+Write-Host ''
+Write-Host 'Building the 32-bit shell extension' -ForegroundColor Cyan
+Invoke-Build $buildDirX86 'Win32'
 
 $outDir = Join-Path $buildDir "bin\$Config"
+$outDirX86 = Join-Path $buildDirX86 "bin\$Config"
+
+# The installer picks everything up from one directory, so the 32-bit DLL moves
+# in next to the x64 one. Different file names, hence no collision.
+$dll32 = Join-Path $outDirX86 'LFS.ShellExtension32.dll'
+if (-not (Test-Path $dll32)) { throw "Missing 32-bit extension: $dll32" }
+Copy-Item $dll32 -Destination $outDir -Force
+
 Write-Host ''
 Write-Host "Output: $outDir" -ForegroundColor Green
-Get-ChildItem $outDir -Include *.exe, *.dll -File -ErrorAction SilentlyContinue |
+Get-ChildItem "$outDir\*" -Include *.exe, *.dll -File -ErrorAction SilentlyContinue |
     ForEach-Object { Write-Host ("  {0,-28} {1,10:N0} bytes" -f $_.Name, $_.Length) }
+Write-Host "32-bit probe: $outDirX86\shellext_probe.exe" -ForegroundColor DarkGray
 
 if (-not $Installer) { return }
 

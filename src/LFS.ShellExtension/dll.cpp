@@ -66,6 +66,27 @@ LSTATUS SetDword(HKEY parent, const wchar_t* subKey, const wchar_t* valueName, D
     return rc;
 }
 
+// The CLSID lives in a per-architecture view of HKCU\Software\Classes -- a
+// 32-bit process only ever sees the one under WOW6432Node. The namespace entry
+// and the desktop-icon opt-out are not redirected, so both builds share them.
+// Clearing those while the other build is still registered would take the node
+// away from every application of that bitness, hence this check.
+bool OtherArchitectureRegistered() {
+#if defined(_WIN64)
+    constexpr REGSAM otherView = KEY_WOW64_32KEY;
+#else
+    constexpr REGSAM otherView = KEY_WOW64_64KEY;
+#endif
+    const std::wstring inproc = std::wstring(kClsidKey) + L"\\InprocServer32";
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, inproc.c_str(), 0, KEY_READ | otherView, &key) !=
+        ERROR_SUCCESS) {
+        return false;
+    }
+    ::RegCloseKey(key);
+    return true;
+}
+
 }  // namespace
 
 void DllAddRef() { ::InterlockedIncrement(&g_objectCount); }
@@ -142,14 +163,21 @@ STDAPI DllRegisterServer() {
 }
 
 STDAPI DllUnregisterServer() {
-    ::SHDeleteKeyW(HKEY_CURRENT_USER, lfs::kNamespaceKey);
+    // Ours alone: this is the view matching our own bitness.
     ::SHDeleteKeyW(HKEY_CURRENT_USER, lfs::kClsidKey);
 
-    HKEY key = nullptr;
-    if (::RegOpenKeyExW(HKEY_CURRENT_USER, lfs::kHideDesktopKey, 0, KEY_SET_VALUE, &key) ==
-        ERROR_SUCCESS) {
-        ::RegDeleteValueW(key, LFS_CLSID_STRING);
-        ::RegCloseKey(key);
+    // Shared with the other architecture, so only the last one out clears them.
+    // Checked after the CLSID is gone, otherwise a machine without WOW64 would
+    // find our own leftovers and never clean up.
+    if (!lfs::OtherArchitectureRegistered()) {
+        ::SHDeleteKeyW(HKEY_CURRENT_USER, lfs::kNamespaceKey);
+
+        HKEY key = nullptr;
+        if (::RegOpenKeyExW(HKEY_CURRENT_USER, lfs::kHideDesktopKey, 0, KEY_SET_VALUE, &key) ==
+            ERROR_SUCCESS) {
+            ::RegDeleteValueW(key, LFS_CLSID_STRING);
+            ::RegCloseKey(key);
+        }
     }
 
     ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);

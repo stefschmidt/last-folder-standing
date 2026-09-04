@@ -37,7 +37,8 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 
-; The shell extension is x64; a 32-bit install would register an unusable DLL.
+; Monitor and settings window are x64, so 64-bit Windows it is. The extension
+; ships in both architectures -- see [Files] for why.
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -59,6 +60,10 @@ Source: "{#BinDir}\LFS.Settings.exe";       DestDir: "{app}"; Flags: ignoreversi
 ; which needs admin and silently does nothing in a per-user install. The old DLL
 ; is renamed away in PrepareToInstall instead, which works while it is loaded.
 Source: "{#BinDir}\LFS.ShellExtension.dll"; DestDir: "{app}"; Flags: ignoreversion
+; The same extension as x86. A 32-bit application cannot load the x64 DLL, and
+; without this one the node is simply missing from its file dialogs -- no error,
+; nothing to see. eM Client, older Adobe tools and much audio software are 32-bit.
+Source: "{#BinDir}\LFS.ShellExtension32.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\app.ico";                DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md";                     DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE";                       DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
@@ -76,8 +81,13 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 
 [Run]
 ; DllRegisterServer writes HKCU only, so plain regsvr32 without elevation works.
+; Each DLL needs the regsvr32 of its own architecture: that is what decides
+; whether the CLSID lands in the 64-bit view or under WOW6432Node, and an
+; application only ever reads the view matching its own bitness.
 Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{app}\LFS.ShellExtension.dll"""; \
     StatusMsg: "Registering navigation pane entry..."; Flags: runhidden waituntilterminated
+Filename: "{syswow64}\regsvr32.exe"; Parameters: "/s ""{app}\LFS.ShellExtension32.dll"""; \
+    StatusMsg: "Registering navigation pane entry (32-bit)..."; Flags: runhidden waituntilterminated
 Filename: "{app}\LFS.Monitor.exe"; Description: "Start monitoring now"; \
     Flags: nowait postinstall skipifsilent
 Filename: "{app}\LFS.Settings.exe"; Description: "Open settings"; \
@@ -86,17 +96,24 @@ Filename: "{app}\LFS.Settings.exe"; Description: "Open settings"; \
 [UninstallDelete]
 ; DLLs renamed aside during an update; Explorer has released them by now.
 Type: files; Name: "{app}\LFS.ShellExtension.dll.old*"
+Type: files; Name: "{app}\LFS.ShellExtension32.dll.old*"
 ; Without this the (now empty) program folder survives the uninstall.
 Type: dirifempty; Name: "{app}"
 
 [UninstallRun]
+; Both have to go. Whichever runs last also clears the shared namespace entry --
+; DllUnregisterServer checks the other architecture before touching it.
 Filename: "{sys}\regsvr32.exe"; Parameters: "/u /s ""{app}\LFS.ShellExtension.dll"""; \
     RunOnceId: "UnregisterShellExtension"; Flags: runhidden waituntilterminated
+Filename: "{syswow64}\regsvr32.exe"; Parameters: "/u /s ""{app}\LFS.ShellExtension32.dll"""; \
+    RunOnceId: "UnregisterShellExtension32"; Flags: runhidden waituntilterminated
 
 [Code]
 const
   MonitorWindowClass = 'LFS_MonitorTrayWindow';
   WM_CLOSE_MSG = $0010;
+  Dll64 = 'LFS.ShellExtension.dll';
+  Dll32 = 'LFS.ShellExtension32.dll';
 
 // FindWindowByClassName and PostMessage are built into Inno Setup's Pascal
 // script. Declaring them as externals again crashes the installer, because
@@ -126,11 +143,11 @@ end;
 
 // Leftovers from an earlier update whose DLL was still loaded. By now Explorer
 // has long let go of them, so they usually delete without a fuss.
-procedure DeleteStaleFiles(Dir: string);
+procedure DeleteStaleFiles(Dir, FileName: string);
 var
   Found: TFindRec;
 begin
-  if FindFirst(Dir + '\LFS.ShellExtension.dll.old*', Found) then
+  if FindFirst(Dir + '\' + FileName + '.old*', Found) then
   try
     repeat
       DeleteFile(Dir + '\' + Found.Name);
@@ -143,19 +160,21 @@ end;
 // A DLL that Explorer has mapped cannot be overwritten -- but it can be renamed.
 // That is what makes an update possible without shutting down the user's
 // desktop, which is what the Restart Manager would otherwise do.
-function MoveOldDllAside(): Boolean;
+//
+// RegSvr has to match the DLL's architecture, otherwise the unregister call
+// writes to the wrong registry view and leaves the real entry behind.
+function MoveOneDllAside(FileName, RegSvr: string): Boolean;
 var
   Dll, Stale: string;
   Index, ResultCode: Integer;
 begin
   Result := True;
-  Dll := ExpandConstant('{app}\LFS.ShellExtension.dll');
+  Dll := ExpandConstant('{app}\') + FileName;
   if not FileExists(Dll) then
     Exit;
 
   // Unregister first: with the CLSID gone, nothing new binds to it.
-  Exec(ExpandConstant('{sys}\regsvr32.exe'), '/u /s "' + Dll + '"', '', SW_HIDE,
-       ewWaitUntilTerminated, ResultCode);
+  Exec(RegSvr, '/u /s "' + Dll + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   // Nobody holds it: plain delete and we are done.
   if DeleteFile(Dll) then
@@ -171,15 +190,29 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Stuck: string;
 begin
   StopMonitor();
-  DeleteStaleFiles(ExpandConstant('{app}'));
+  DeleteStaleFiles(ExpandConstant('{app}'), Dll64);
+  DeleteStaleFiles(ExpandConstant('{app}'), Dll32);
 
-  if MoveOldDllAside() then
+  // Both are dealt with before giving up on either, so a single stuck DLL does
+  // not leave the other one registered against a file that is about to change.
+  Stuck := '';
+  if not MoveOneDllAside(Dll64, ExpandConstant('{sys}\regsvr32.exe')) then
+    Stuck := Dll64;
+  if not MoveOneDllAside(Dll32, ExpandConstant('{syswow64}\regsvr32.exe')) then
+    if Stuck = '' then
+      Stuck := Dll32
+    else
+      Stuck := Stuck + ' and ' + Dll32;
+
+  if Stuck = '' then
     Result := ''
   else
-    Result := 'The previous version of LFS.ShellExtension.dll is in use and could not ' +
-              'be moved aside. Sign out and back in, then run Setup again.';
+    Result := 'The previous version of ' + Stuck + ' is in use and could not be moved ' +
+              'aside. Sign out and back in, then run Setup again.';
 end;
 
 function InitializeUninstall(): Boolean;
@@ -194,11 +227,11 @@ end;
 // install does not have. HKCU RunOnce does the same job at the next logon.
 procedure ScheduleFolderCleanup(Dir: string);
 begin
-  // By this point the [Files] entries are gone. If the DLL is still there, it
-  // is because Explorer has it mapped -- that is the only case worth scheduling
+  // By this point the [Files] entries are gone. If a DLL is still there, it is
+  // because some process has it mapped -- that is the only case worth scheduling
   // a cleanup for. Doing it unconditionally would flash a console window at the
   // next logon of every uninstall, for nothing.
-  if not FileExists(Dir + '\LFS.ShellExtension.dll') then
+  if not (FileExists(Dir + '\' + Dll64) or FileExists(Dir + '\' + Dll32)) then
     Exit;
 
   RegWriteStringValue(HKEY_CURRENT_USER,

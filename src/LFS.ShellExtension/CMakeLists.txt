@@ -27,8 +27,10 @@ target_link_libraries(LFS.ShellExtension PRIVATE
     user32
 )
 
+# x64 builds LFS.ShellExtension.dll, x86 builds LFS.ShellExtension32.dll. They
+# ship side by side in the same folder, so the names have to differ.
 set_target_properties(LFS.ShellExtension PROPERTIES
-    OUTPUT_NAME "LFS.ShellExtension"
+    OUTPUT_NAME "${LFS_EXTENSION_OUTPUT_NAME}"
     PREFIX ""
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
@@ -40,5 +42,11 @@ set_property(TARGET LFS.ShellExtension PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # The icon rides along so the registered DefaultIcon can point at the DLL.
+# The description says which of the two DLLs you are looking at in Explorer.
+if(LFS_BUILD_32BIT)
+    set(lfs_ext_description "Last Folder Standing navigation pane extension (32-bit)")
+else()
+    set(lfs_ext_description "Last Folder Standing navigation pane extension")
+endif()
 lfs_add_version_resource(LFS.ShellExtension
-    "Last Folder Standing navigation pane extension" "LFS.ShellExtension.dll" "VFT_DLL" TRUE)
+    "${lfs_ext_description}" "${LFS_EXTENSION_OUTPUT_NAME}.dll" "VFT_DLL" TRUE)
