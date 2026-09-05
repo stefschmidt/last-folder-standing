@@ -11,7 +11,11 @@ You save a render in your DAW, switch to the browser, hit "Upload" — and the f
 - "Used" = picked in any standard Open/Save dialog, in any program — **or** worked in
   through Explorer itself: pasting a file, dragging something in, or just keeping the
   folder open for a few seconds
-- Click an entry → navigate there in the same window/dialog
+- Click an entry → navigate there in the same window/dialog. From there you keep
+  browsing normally: one level up goes to the folder's real parent, not back into
+  the list
+- Two folders with the same name — a copy source and its target, both called
+  `WindowsInstaller` — are told apart by their parent folder: `WindowsInstaller (Projekt A)`
 
 ## What makes it different
 

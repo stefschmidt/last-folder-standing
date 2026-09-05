@@ -19,8 +19,16 @@ namespace {
 // What a child claims to be. SFGAO_FILESYSTEM plus a real parsing name is what
 // lets the shell treat the item as the target folder, so a click navigates
 // there instead of into a virtual view of ours.
+//
+// SFGAO_LINK is what makes "up one level" behave. Without it the shell browses
+// to <our node>\<child> and going up lands back on our node, because that is
+// literally the parent of the item it navigated to. Marked as a link, the shell
+// asks us for the item's IShellLink, resolves it and browses to the target's own
+// absolute location instead -- after which up, the address bar and the
+// breadcrumb work as if the folder had been opened directly. Same mechanism the
+// Quick access entries use. The price is the shortcut arrow on the icons.
 constexpr SFGAOF kChildAttributes = SFGAO_FOLDER | SFGAO_FILESYSTEM | SFGAO_FILESYSANCESTOR |
-                                    SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+                                    SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE | SFGAO_LINK;
 
 HRESULT StringToStrRet(const std::wstring& text, STRRET* out) {
     if (!out) return E_POINTER;
@@ -36,6 +44,38 @@ HRESULT StringToStrRet(const std::wstring& text, STRRET* out) {
 PCUITEMID_CHILD AsChild(PCUIDLIST_RELATIVE pidl) {
     const auto child = reinterpret_cast<PCUITEMID_CHILD>(pidl);
     return AsChildItem(child) ? child : nullptr;
+}
+
+bool WantsShellLink(REFIID riid) {
+    return riid == IID_IShellLinkW || riid == IID_IShellLinkA;
+}
+
+// A shortcut pointing at the target folder, built from the shell's own link
+// object. This is what the shell asks for once an item reports SFGAO_LINK, and
+// what makes it navigate to the real folder rather than to our child item.
+//
+// SetPath rather than SetIDList on purpose: it stores the string, so nothing
+// here touches the disk. A path on a dead network share would otherwise stall
+// whoever asked -- and the shell asks while it paints the tree, not only when
+// the user clicks. Resolving the path is then the shell's job, at a point where
+// it is the user who asked for it.
+HRESULT CreateTargetLink(const std::wstring& path, REFIID riid, void** ppv) {
+    IShellLinkW* link = nullptr;
+    HRESULT hr = ::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+                                    reinterpret_cast<void**>(&link));
+    if (FAILED(hr)) return hr;
+
+    hr = link->SetPath(path.c_str());
+    if (SUCCEEDED(hr)) hr = link->QueryInterface(riid, ppv);
+    link->Release();
+    return hr;
+}
+
+// The name shown in the tree. Folders whose leaf names collide carry a wider
+// style, so "WindowsInstaller" twice becomes "WindowsInstaller (Projekt A)" and
+// "WindowsInstaller (Archiv)".
+std::wstring DisplayName(const ChildItem* item) {
+    return FormatDisplayName(std::wstring(item->path), ItemNameStyle(item));
 }
 
 }  // namespace
@@ -115,7 +155,8 @@ IFACEMETHODIMP RootFolder::ParseDisplayName(HWND hwnd, IBindCtx* pbc, PWSTR pszD
         const std::vector<StateFolder> folders = ReadState();
         for (size_t i = 0; i < folders.size(); ++i) {
             if (::StrCmpIW(folders[i].path.c_str(), pszDisplayName) != 0) continue;
-            PITEMID_CHILD child = CreateChildPidl(static_cast<USHORT>(i), folders[i].path);
+            PITEMID_CHILD child =
+                CreateChildPidl(static_cast<USHORT>(i), folders[i].path, folders[i].nameStyle);
             if (!child) return E_OUTOFMEMORY;
             *ppidl = reinterpret_cast<PIDLIST_RELATIVE>(child);
             if (pdwAttributes) *pdwAttributes &= kChildAttributes;
@@ -158,6 +199,11 @@ IFACEMETHODIMP RootFolder::BindToObject(PCUIDLIST_RELATIVE pidl, IBindCtx* pbc, 
 
     const std::wstring path = ChildPath(AsChild(pidl));
     if (path.empty()) return E_INVALIDARG;
+
+    // SHGetTargetFolderIDList and everything else that follows a shortcut asks
+    // for the link here rather than through GetUIObjectOf. Both call paths exist
+    // in the shell, so both are served.
+    if (WantsShellLink(riid)) return CreateTargetLink(path, riid, ppv);
 
     // Hand the caller the real folder. This is the only place that can block
     // (a dead share), and it only runs when the user actually opens that item.
@@ -242,6 +288,10 @@ IFACEMETHODIMP RootFolder::GetUIObjectOf(HWND hwndOwner, UINT cidl, PCUITEMID_CH
         }
     }
 
+    // The item claims SFGAO_LINK, so the shell will come asking what it points
+    // at. See CreateTargetLink.
+    if (WantsShellLink(riid)) return CreateTargetLink(path, riid, ppv);
+
     // Context menus, drag/drop and property sheets are deliberately not offered:
     // every one of them is another way to crash the host process.
     return E_NOINTERFACE;
@@ -257,9 +307,12 @@ IFACEMETHODIMP RootFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFlags,
         const std::wstring path(item->path);
         // FORPARSING without INFOLDER must yield something the shell can parse
         // back into the real folder -- that is the whole trick of this extension.
-        const bool wantsPath =
-            (uFlags & SHGDN_FORPARSING) != 0 && (uFlags & SHGDN_INFOLDER) == 0;
-        return StringToStrRet(wantsPath ? path : LeafName(path), pName);
+        // Both parsing forms stay the plain path or leaf; only what a human gets
+        // to see carries the disambiguated name.
+        if (uFlags & SHGDN_FORPARSING) {
+            return StringToStrRet((uFlags & SHGDN_INFOLDER) ? LeafName(path) : path, pName);
+        }
+        return StringToStrRet(DisplayName(item), pName);
     } catch (...) {
         return E_OUTOFMEMORY;
     }
@@ -324,8 +377,8 @@ IFACEMETHODIMP RootFolder::GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, SHEL
     const ChildItem* item = AsChildItem(pidl);
     if (!item) return E_INVALIDARG;
     try {
-        const std::wstring path(item->path);
-        return StringToStrRet(iColumn == 0 ? LeafName(path) : path, &psd->str);
+        return StringToStrRet(iColumn == 0 ? DisplayName(item) : std::wstring(item->path),
+                              &psd->str);
     } catch (...) {
         return E_OUTOFMEMORY;
     }

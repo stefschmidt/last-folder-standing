@@ -42,7 +42,8 @@ IFACEMETHODIMP ChildEnumerator::Next(ULONG celt, PITEMID_CHILD* rgelt, ULONG* pc
     ULONG fetched = 0;
     while (fetched < celt && position_ < folders_.size()) {
         const StateFolder& folder = folders_[position_];
-        PITEMID_CHILD pidl = CreateChildPidl(static_cast<USHORT>(position_), folder.path);
+        PITEMID_CHILD pidl =
+            CreateChildPidl(static_cast<USHORT>(position_), folder.path, folder.nameStyle);
         ++position_;
         if (!pidl) continue;  // skip an unusable entry rather than failing the enum
         rgelt[fetched] = pidl;

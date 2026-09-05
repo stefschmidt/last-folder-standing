@@ -77,6 +77,9 @@ folders themselves; clicking one navigates the view to the real filesystem folde
       all rejected; verified by `shellext_probe`
 - [x] 32-bit build (`LFS.ShellExtension32.dll`) registered in the WOW6432Node view,
       so the node also appears in 32-bit applications' file dialogs
+- [x] Children are links (`SFGAO_LINK` + `IShellLink`), so "up one level" leaves the
+      node and follows the real folder structure
+- [x] Colliding leaf names are widened to `Amps (PC)`, full path if that still collides
 - [ ] Application Verifier run
 
 ## What made this testable
@@ -101,6 +104,13 @@ additionally hands out the real `IShellFolder` via `SHParseDisplayName` +
 `CompareIDs` orders by the item's index in state.json, not by name, so the newest
 folder stays on top instead of the shell sorting the list alphabetically.
 
-`GetUIObjectOf` serves `IExtractIconW` and nothing else. Context menus, drag/drop
-and property sheets are each another way to crash the host process, and none of
-them is needed to click a folder.
+`GetUIObjectOf` serves `IExtractIconW` and `IShellLink` (what the item points
+at), and nothing else. Context menus, drag/drop and property sheets are each
+another way to crash the host process, and none of them is needed to click a
+folder.
+
+Reporting `SFGAO_FILESYSTEM` and a real parsing name gets the *content* right,
+but the shell still browses to `<our node>\<child>`, which is why "up one level"
+used to end on our node. `SFGAO_LINK` plus `IShellLink` is what makes the shell
+resolve the item and browse to the target itself. See "Navigating out of the
+node" in docs/DEVELOPMENT.md.

@@ -6,7 +6,7 @@
 
 namespace lfs {
 
-PITEMID_CHILD CreateChildPidl(USHORT index, const std::wstring& path) {
+PITEMID_CHILD CreateChildPidl(USHORT index, const std::wstring& path, NameStyle style) {
     if (path.empty() || path.size() > kMaxChildPathChars) return nullptr;
 
     // header + path incl. NUL + the 2-byte list terminator
@@ -24,6 +24,7 @@ PITEMID_CHILD CreateChildPidl(USHORT index, const std::wstring& path) {
     item->signature = kChildSignature;
     item->version = kChildVersion;
     item->index = index;
+    item->nameStyle = static_cast<USHORT>(style);
     std::memcpy(item->path, path.c_str(), pathBytes);
 
     return reinterpret_cast<PITEMID_CHILD>(raw);
@@ -69,5 +70,21 @@ USHORT ChildIndex(PCUITEMID_CHILD pidl) {
     const ChildItem* item = AsChildItem(pidl);
     return item ? item->index : 0xFFFF;
 }
+
+NameStyle ItemNameStyle(const ChildItem* item) {
+    if (!item) return NameStyle::Leaf;
+    switch (item->nameStyle) {
+        case static_cast<USHORT>(NameStyle::LeafWithParent):
+            return NameStyle::LeafWithParent;
+        case static_cast<USHORT>(NameStyle::FullPath):
+            return NameStyle::FullPath;
+        default:
+            // A style we do not know is a cosmetic problem, not a reason to
+            // refuse the item. Fall back to the plain leaf name.
+            return NameStyle::Leaf;
+    }
+}
+
+NameStyle ChildNameStyle(PCUITEMID_CHILD pidl) { return ItemNameStyle(AsChildItem(pidl)); }
 
 }  // namespace lfs

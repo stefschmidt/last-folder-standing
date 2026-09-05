@@ -194,6 +194,54 @@ the direct mode the runtime value, `--registered` the registry value.
 Attributes are read once per process. After changing them, restart the host
 application; a running one keeps showing the old state.
 
+### Navigating out of the node
+
+A child reports `SFGAO_LINK` and serves `IShellLink` from both `GetUIObjectOf`
+and `BindToObject`. Without it the shell browses to `<our node>\<child>`, and
+"up one level" lands on our node — that really is the parent of the item it
+navigated to. Marked as a link, the shell resolves the item first and browses to
+the target's own place in the namespace, after which up, the address bar and the
+breadcrumb behave as if the folder had been opened directly. Both call paths
+exist in the shell (`SHGetTargetFolderIDList` asks through `BindToObject`, the
+view through `GetUIObjectOf`), so both are served.
+
+The link is built with `IShellLink::SetPath`, not `SetIDList`: SetPath only
+stores the string, so nothing in the extension touches the disk for it. The
+shell asks for links while it paints the tree, not only when the user clicks,
+and a path on a dead share would otherwise stall whoever asked. Resolving it is
+then the shell's job, at a point where the user asked for it.
+
+The price is the shortcut overlay on the child icons. `shellext_probe` verifies
+the attribute and that `GetIDList` really returns the target — without that the
+navigation silently falls back to the old behaviour.
+
+### Duplicate folder names
+
+The list is used to pick copy sources and targets, where two entries called
+"WindowsInstaller" say nothing. `ReadState` widens names that collide: first to
+leaf plus parent folder (`Amps (PC)`), and if that still collides — same leaf
+under a same-named parent in different branches — to the full path.
+
+The decision needs the whole list, but the shell asks for a name long after the
+enumeration is gone, so the chosen style travels in the child PIDL (`nameStyle`).
+That is what took the item format to version 2. Version 1 items have the path at
+a different offset and are rejected like any foreign PIDL; the shell then
+re-enumerates.
+
+Only what a human sees changes. Both parsing forms of `GetDisplayNameOf` still
+return the plain path or leaf name.
+
+The widened name is deliberately what solves this, and not a tooltip on hover.
+That was implemented first, via `IQueryInfo::GetInfoTip`, and measured through
+the registered DLL: the shell does hand out our tip correctly — it just never
+reaches the screen, because the navigation pane shows no infotips at all. Not
+for our items, not for a drive, which does have one ("free space ... of ..."). So
+there is nothing to fix on our side and the code went out again. The same
+measurement also showed `PKEY_InfoTipText` in `GetDetailsEx` to be a dead end:
+the shell returns nothing for that property, for any item.
+
+Anything that has to be readable in the tree therefore has to be in the name.
+
 ### 32-bit applications
 
 The DLL is loaded into the process that shows the dialog, and a 32-bit process

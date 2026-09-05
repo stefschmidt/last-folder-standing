@@ -49,16 +49,21 @@ using DllCanUnloadNowFn = HRESULT(STDAPICALLTYPE*)();
 
 // A PIDL that is not ours, or is ours but broken. Every accessor must reject
 // these rather than read past the allocation.
-PITEMID_CHILD MakeBogusPidl(USHORT cb, USHORT signature, bool terminatePath) {
-    const size_t total = cb + sizeof(USHORT);
+PITEMID_CHILD MakeBogusPidl(USHORT cb, USHORT signature, USHORT version, bool terminatePath) {
+    // The buffer always holds a full header, even when cb claims something
+    // smaller. The undersized case is about what the item declares to the DLL,
+    // not about writing past our own allocation while building it.
+    const size_t declared = static_cast<size_t>(cb) + sizeof(USHORT);
+    const size_t total = declared > sizeof(lfs::ChildItem) ? declared : sizeof(lfs::ChildItem);
     auto* raw = static_cast<BYTE*>(::CoTaskMemAlloc(total));
     if (!raw) return nullptr;
     ::FillMemory(raw, total, 0x41);  // 'A', so an unterminated path stays unterminated
     auto* item = reinterpret_cast<lfs::ChildItem*>(raw);
     item->cb = cb;
     item->signature = signature;
-    item->version = lfs::kChildVersion;
+    item->version = version;
     item->index = 0;
+    item->nameStyle = 0;
     if (terminatePath && cb > offsetof(lfs::ChildItem, path) + sizeof(WCHAR)) {
         item->path[0] = L'\0';
     }
@@ -250,6 +255,7 @@ int wmain(int argc, wchar_t** argv) {
 
     if (!children.empty()) {
         std::wprintf(L"\nChild items\n");
+        std::vector<std::wstring> names;
         for (size_t i = 0; i < children.size(); ++i) {
             STRRET display{};
             STRRET parsing{};
@@ -260,6 +266,7 @@ int wmain(int argc, wchar_t** argv) {
             if (okDisplay && okParsing) {
                 const std::wstring name = StrRetToString(display, children[i]);
                 const std::wstring path = StrRetToString(parsing, children[i]);
+                names.push_back(name);
                 std::wprintf(L"  %zu. %-28s -> %s\n", i + 1, name.c_str(), path.c_str());
                 // The parsing name has to be a real path, otherwise navigation breaks.
                 const DWORD attrs = ::GetFileAttributesW(path.c_str());
@@ -273,11 +280,28 @@ int wmain(int argc, wchar_t** argv) {
             }
         }
 
+        // Two folders with the same leaf name must not end up with the same
+        // label -- that is the whole point of the widened display names.
+        bool unique = true;
+        for (size_t i = 0; i < names.size() && unique; ++i) {
+            for (size_t j = i + 1; j < names.size(); ++j) {
+                if (::StrCmpIW(names[i].c_str(), names[j].c_str()) == 0) {
+                    std::wprintf(L"    duplicate label: %s\n", names[i].c_str());
+                    unique = false;
+                    break;
+                }
+            }
+        }
+        Check(unique, L"display names are unique within the list");
+
         PCUITEMID_CHILD first = children[0];
         SFGAOF attrs = SFGAO_FOLDER | SFGAO_FILESYSTEM | SFGAO_HASSUBFOLDER | SFGAO_LINK;
         hr = folder->GetAttributesOf(1, &first, &attrs);
         Check(SUCCEEDED(hr) && (attrs & SFGAO_FOLDER) && (attrs & SFGAO_FILESYSTEM),
               L"child reports FOLDER | FILESYSTEM");
+        // Without LINK the shell browses to <our node>\<child>, and going up one
+        // level lands on our node instead of the target's real parent.
+        Check(SUCCEEDED(hr) && (attrs & SFGAO_LINK), L"child reports LINK");
 
         // A file dialog asking for real paths (FOS_FORCEFILESYSTEM) drops any
         // node that is neither a filesystem object nor able to contain one.
@@ -299,6 +323,31 @@ int wmain(int argc, wchar_t** argv) {
                   L"GetIconLocation succeeds");
             std::wprintf(L"    icon: %s,%d\n", iconFile, index);
             icon->Release();
+        }
+
+        // What makes "up one level" leave our node: the shell follows the link
+        // and browses to the target's own place in the namespace. If GetIDList
+        // comes back empty here, it has nothing to navigate to and falls back to
+        // the old behaviour.
+        for (int viaBind = 0; viaBind < 2; ++viaBind) {
+            IShellLinkW* link = nullptr;
+            const HRESULT linkHr =
+                viaBind ? folder->BindToObject(children[0], nullptr, IID_IShellLinkW,
+                                               reinterpret_cast<void**>(&link))
+                        : folder->GetUIObjectOf(nullptr, 1, &first, IID_IShellLinkW, nullptr,
+                                                reinterpret_cast<void**>(&link));
+            Check(SUCCEEDED(linkHr) && link != nullptr,
+                  viaBind ? L"BindToObject provides IShellLink" : L"GetUIObjectOf provides IShellLink");
+            if (!link) continue;
+
+            PIDLIST_ABSOLUTE target = nullptr;
+            wchar_t targetPath[MAX_PATH]{};
+            const bool resolved = SUCCEEDED(link->GetIDList(&target)) && target != nullptr &&
+                                  ::SHGetPathFromIDListW(target, targetPath);
+            Check(resolved, L"    link resolves to the target folder");
+            if (resolved) std::wprintf(L"    link target: %s\n", targetPath);
+            if (target) ::CoTaskMemFree(target);
+            link->Release();
         }
 
         IShellFolder* real = nullptr;
@@ -335,15 +384,18 @@ int wmain(int argc, wchar_t** argv) {
         const wchar_t* name;
         USHORT cb;
         USHORT signature;
+        USHORT version;
         bool terminate;
     };
     const BogusCase cases[] = {
-        {L"foreign signature rejected", 32, 0x1234, true},
-        {L"undersized item rejected", 4, lfs::kChildSignature, false},
-        {L"unterminated path rejected", 40, lfs::kChildSignature, false},
+        {L"foreign signature rejected", 32, 0x1234, lfs::kChildVersion, true},
+        {L"undersized item rejected", 4, lfs::kChildSignature, lfs::kChildVersion, false},
+        {L"unterminated path rejected", 40, lfs::kChildSignature, lfs::kChildVersion, false},
+        // An item from an older build has the path at a different offset.
+        {L"outdated item version rejected", 40, lfs::kChildSignature, 1, true},
     };
     for (const auto& c : cases) {
-        PITEMID_CHILD bogus = MakeBogusPidl(c.cb, c.signature, c.terminate);
+        PITEMID_CHILD bogus = MakeBogusPidl(c.cb, c.signature, c.version, c.terminate);
         if (!bogus) continue;
         STRRET name{};
         const HRESULT nameHr = folder->GetDisplayNameOf(bogus, SHGDN_NORMAL, &name);

@@ -9,11 +9,14 @@
 #include <string>
 #include <vector>
 
+#include "pidl.h"
+
 namespace lfs {
 
 struct StateFolder {
-    std::wstring path;         // full target path
-    std::wstring displayName;  // leaf name, what the tree shows
+    std::wstring path;                     // full target path
+    std::wstring displayName;              // what the tree shows, unique in the list
+    NameStyle nameStyle = NameStyle::Leaf;  // how displayName was derived
 };
 
 std::vector<StateFolder> ReadState() noexcept;
@@ -21,5 +24,13 @@ std::vector<StateFolder> ReadState() noexcept;
 // Leaf name of a path, used for the display name. "C:\" style roots keep the
 // whole string because "C:" alone reads as a drive-relative path.
 std::wstring LeafName(const std::wstring& path);
+
+// Everything above the leaf, empty when there is nothing meaningful above it
+// ("C:\", "\\server\share").
+std::wstring ParentPath(const std::wstring& path);
+
+// The display name of a path in the given style. Falls back to the leaf name
+// when the style cannot be applied.
+std::wstring FormatDisplayName(const std::wstring& path, NameStyle style);
 
 }  // namespace lfs
